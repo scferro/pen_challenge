@@ -25,9 +25,9 @@ def update_val_high(val):
 #set HSV range for purple
 hue_low = 110
 hue_high = 145
-sat_low = 70
+sat_low = 85
 sat_high = 255
-val_low = 55
+val_low = 20
 val_high = 200
 
 #create pipeline and config
@@ -85,21 +85,46 @@ while True:
 
     # Threshold the HSV image to get only purple colors
     mask = cv2.inRange(hsv_image, lower_purple, upper_purple)
-    masked_image = cv2.bitwise_and(color_image, color_image, mask= mask)     
+    masked_image = cv2.bitwise_and(color_image, color_image, mask= mask)    
 
-    #render images: color on left, depth on right
+    # clean up masked image
+    kernel_1 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(10,10))
+    masked_image_opening = cv2.morphologyEx(masked_image, cv2.MORPH_OPEN, kernel_1)
+    kernel_2 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(30,30))
+    masked_image_clean = cv2.morphologyEx(masked_image_opening, cv2.MORPH_CLOSE, kernel_2)
+
+    #contour detection
+    masked_image_gray = cv2.cvtColor(masked_image_clean, cv2.COLOR_BGR2GRAY)
+    ret, thresh = cv2.threshold(masked_image_gray, 10, 255, 0)
+    contours, hierarchy = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+    #find centroid
+    try:
+        edge = contours[0]
+        moment = cv2.moments(edge)
+        cx = int(moment['m10']/moment['m00'])
+        cy = int(moment['m01']/moment['m00'])
+    except IndexError as e:
+        cx = 320
+        cy = 240
+    print([cx,cy])
+
+    #render images: color on left, filtered image center, depth on right
     depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.08), cv2.COLORMAP_HOT)
-    images = np.hstack((color_image, masked_image, depth_colormap))
-    cv2.imshow('Video Output', images)
+    cv2.drawContours(color_image, contours, -1, (0,255,0), 2)
+    cv2.circle(color_image, (cx,cy), radius=10, color=(0, 0, 255), thickness=2)
+    cv2.drawContours(masked_image_clean, contours, -1, (0,255,0), 2)
+    cv2.circle(masked_image_clean, (cx,cy), radius=10, color=(0, 0, 255), thickness=2)
+    cv2.drawContours(depth_colormap, contours, -1, (0,255,0), 2)
+    cv2.circle(depth_colormap, (cx,cy), radius=10, color=(0, 0, 255), thickness=2)
+    images = np.hstack((color_image, masked_image_clean, depth_colormap))
+    cv2.imshow('Video and Depth Output', images)
+    #cv2.imshow(window_name, masked_image_clean)
 
     #press esc to quit
     key = cv2.waitKey(1)
     if key == 27: 
         cv2.destroyAllWindows()
         break
-
-    print("Variables:")
-    print(hue_low)
-    print(hue_high)
 
 pipeline.stop()
